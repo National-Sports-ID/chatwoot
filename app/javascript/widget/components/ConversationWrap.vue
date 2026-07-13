@@ -67,7 +67,18 @@ export default {
   updated() {
     if (this.previousConversationSize !== this.conversationSize) {
       this.previousConversationSize = this.conversationSize;
-      this.scrollToBottom();
+      // NSID/Ace: when a new agent reply arrives, pin the TOP of that reply to
+      // the top of the viewport so long answers are read from the beginning
+      // instead of jumping to the bottom. The visitor's own messages still
+      // scroll to the bottom as usual.
+      if (
+        this.lastMessage &&
+        this.lastMessage.message_type === MESSAGE_TYPE.OUTGOING
+      ) {
+        this.scrollToLatestReply();
+      } else {
+        this.scrollToBottom();
+      }
     }
   },
   unmounted() {
@@ -79,6 +90,29 @@ export default {
       const container = this.$el;
       container.scrollTop = container.scrollHeight - this.previousScrollHeight;
       this.previousScrollHeight = 0;
+    },
+    scrollToLatestReply() {
+      // Pin the TOP of the newest reply flush to the top of the scroll
+      // container (same #cwmsg-<id> anchor ReplyToChip uses). We compute the
+      // offset explicitly instead of scrollIntoView() so any scroll-padding on
+      // the container is ignored and there's no residual gap. If the reply is
+      // short and there isn't enough content below it, scrollTop clamps and it
+      // simply sits as high as it can — which is the desired behaviour.
+      this.$nextTick(() => {
+        const container = this.$el;
+        const el = this.lastMessage
+          ? container.querySelector(`#cwmsg-${this.lastMessage.id}`)
+          : null;
+        if (el) {
+          const delta =
+            el.getBoundingClientRect().top -
+            container.getBoundingClientRect().top;
+          container.scrollTop += delta;
+          this.previousScrollHeight = 0;
+        } else {
+          this.scrollToBottom();
+        }
+      });
     },
     handleScroll() {
       if (
