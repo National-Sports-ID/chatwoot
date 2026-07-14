@@ -1,0 +1,68 @@
+name: Deploy Chatwoot
+
+on:
+  push:
+    branches:
+      - nsid-prod        # change this to your branch name
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: self-hosted
+
+    steps:
+      # Step 1 - Checkout the code
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2 - Deploy to EC2 via SSH
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          timeout: 600s
+          script: |
+            # Stop Chatwoot
+            sudo systemctl stop chatwoot.target
+
+            # Backup .env
+            cp /home/chatwoot/chatwoot/.env /home/chatwoot/.env.backup
+
+            # Pull latest code as chatwoot user
+            sudo -u chatwoot bash << 'DEPLOY'
+            source /usr/local/rvm/scripts/rvm
+            rvm use 3.4.4
+            cd /home/chatwoot/chatwoot
+
+            # Pull latest code
+            git fetch origin
+            git checkout main    # change to your branch name
+            git pull origin main # change to your branch name
+
+            # Install dependencies
+            bundle install --without development test
+            pnpm install
+
+            # Compile assets
+            RAILS_ENV=production bundle exec rake assets:precompile
+
+            # Run migrations
+            RAILS_ENV=production bundle exec rake db:migrate
+
+            DEPLOY
+
+            # Restore .env (never overwrite from repo)
+            cp /home/chatwoot/.env.backup /home/chatwoot/chatwoot/.env
+
+            # Fix permissions
+            sudo chown -R chatwoot:chatwoot /home/chatwoot/chatwoot
+
+            # Restart Chatwoot
+            sudo systemctl daemon-reload
+            sudo systemctl restart chatwoot.target
+
+            # Wait and verify
+            sleep 10
+            curl -sf http://localhost:3000/auth/sign_in && echo "✅ Deployment successful" || echo "❌ App not responding"
