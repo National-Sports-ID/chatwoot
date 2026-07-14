@@ -5,7 +5,7 @@ set -e
 systemctl daemon-reload
 systemctl restart chatwoot.target
 
-# Wait longer for the app to fully start
+# Wait longer for the app to fully start.
 sleep 20
 
 # Check if services are running (don't fail on curl)
