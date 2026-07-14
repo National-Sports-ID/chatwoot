@@ -1,0 +1,27 @@
+version: 0.0
+os: linux
+files:
+  - source: /
+    destination: /home/chatwoot/chatwoot
+    overwrite: true
+file_exists_behavior: OVERWRITE
+permissions:
+  - object: /home/chatwoot/chatwoot
+    owner: chatwoot
+    group: chatwoot
+    mode: 755
+    type:
+      - directory
+hooks:
+  BeforeInstall:
+    - location: scripts/before_install.sh
+      timeout: 300
+      runas: root
+  AfterInstall:
+    - location: scripts/after_install.sh
+      timeout: 600
+      runas: root
+  ApplicationStart:
+    - location: scripts/start_application.sh
+      timeout: 300
+      runas: root
