@@ -29,8 +29,8 @@ jobs:
           echo "Stopping Chatwoot..."
           sudo systemctl stop chatwoot.target
 
-          echo "Backing up .env..."
-          cp /home/chatwoot/chatwoot/.env /home/chatwoot/.env.backup
+          #echo "Backing up .env..."
+          #sudo -u chatwoot cp /home/chatwoot/chatwoot/.env /home/chatwoot/.env.backup
 
           echo "Deploying latest code..."
           sudo -u chatwoot bash << 'DEPLOY'
@@ -52,8 +52,8 @@ jobs:
           RAILS_ENV=production bundle exec rake db:migrate
           DEPLOY
 
-          echo "Restoring .env..."
-          cp /home/chatwoot/.env.backup /home/chatwoot/chatwoot/.env
+          #echo "Restoring .env..."
+          #sudo -u chatwoot cp /home/chatwoot/.env.backup /home/chatwoot/chatwoot/.env
 
           echo "Fixing permissions..."
           sudo chown -R chatwoot:chatwoot /home/chatwoot/chatwoot
