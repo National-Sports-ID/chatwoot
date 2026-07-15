@@ -3,66 +3,69 @@ name: Deploy Chatwoot
 on:
   push:
     branches:
-      - nsid-prod        # change this to your branch name
+      - prod-nsid
+
+  pull_request:
+    branches:
+      - prod-nsid
+
+  workflow_dispatch:
 
 jobs:
   deploy:
-    name: Deploy to EC2
+    name: Deploy Chatwoot
     runs-on: self-hosted
 
     steps:
-      # Step 1 - Checkout the code
+      # Checkout repository
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Step 2 - Deploy to EC2 via SSH
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          timeout: 600s
-          script: |
-            # Stop Chatwoot
-            sudo systemctl stop chatwoot.target
+      # Deploy Chatwoot
+      - name: Deploy Chatwoot
+        run: |
+          set -e
 
-            # Backup .env
-            cp /home/chatwoot/chatwoot/.env /home/chatwoot/.env.backup
+          echo "Stopping Chatwoot..."
+          sudo systemctl stop chatwoot.target
 
-            # Pull latest code as chatwoot user
-            sudo -u chatwoot bash << 'DEPLOY'
-            source /usr/local/rvm/scripts/rvm
-            rvm use 3.4.4
-            cd /home/chatwoot/chatwoot
+          echo "Backing up .env..."
+          cp /home/chatwoot/chatwoot/.env /home/chatwoot/.env.backup
 
-            # Pull latest code
-            git fetch origin
-            git checkout main    # change to your branch name
-            git pull origin main # change to your branch name
+          echo "Deploying latest code..."
+          sudo -u chatwoot bash << 'DEPLOY'
+          source /usr/local/rvm/scripts/rvm
+          rvm use 3.4.4
 
-            # Install dependencies
-            bundle install --without development test
-            pnpm install
+          cd /home/chatwoot/chatwoot
 
-            # Compile assets
-            RAILS_ENV=production bundle exec rake assets:precompile
+          git fetch origin
+          git checkout prod-nsid
+          git pull origin prod-nsid
 
-            # Run migrations
-            RAILS_ENV=production bundle exec rake db:migrate
+          bundle install --without development test
 
-            DEPLOY
+          pnpm install
 
-            # Restore .env (never overwrite from repo)
-            cp /home/chatwoot/.env.backup /home/chatwoot/chatwoot/.env
+          RAILS_ENV=production bundle exec rake assets:precompile
 
-            # Fix permissions
-            sudo chown -R chatwoot:chatwoot /home/chatwoot/chatwoot
+          RAILS_ENV=production bundle exec rake db:migrate
+          DEPLOY
 
-            # Restart Chatwoot
-            sudo systemctl daemon-reload
-            sudo systemctl restart chatwoot.target
+          echo "Restoring .env..."
+          cp /home/chatwoot/.env.backup /home/chatwoot/chatwoot/.env
 
-            # Wait and verify
-            sleep 10
-            curl -sf http://localhost:3000/auth/sign_in && echo "✅ Deployment successful" || echo "❌ App not responding"
+          echo "Fixing permissions..."
+          sudo chown -R chatwoot:chatwoot /home/chatwoot/chatwoot
+
+          echo "Restarting Chatwoot..."
+          sudo systemctl daemon-reload
+          sudo systemctl restart chatwoot.target
+
+          echo "Waiting for application..."
+          sleep 10
+
+          echo "Verifying deployment..."
+          curl -sf http://localhost:3000/auth/sign_in
+
+          echo "✅ Deployment successful"
