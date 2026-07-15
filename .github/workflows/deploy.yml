@@ -40,8 +40,7 @@ jobs:
           cd /home/chatwoot/chatwoot
 
           git fetch origin
-          git checkout prod-nsid
-          git pull origin prod-nsid
+          git reset --hard origin/prod-nsid
 
           bundle install --without development test
 
@@ -66,6 +65,12 @@ jobs:
           sleep 10
 
           echo "Verifying deployment..."
-          curl -sf http://localhost:3000/auth/sign_in
+          STATUS=$(curl -o /dev/null -s -w "%{http_code}" http://localhost:3000/)
 
-          echo "✅ Deployment successful"
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Deployment successful"
+          else
+            echo "❌ Deployment failed (HTTP $STATUS)"
+            exit 1
+          fi
+      
