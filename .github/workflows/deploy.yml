@@ -22,8 +22,29 @@ jobs:
         run: |
           set -eo pipefail
 
+          # A failed deploy must never leave the app down (nginx would serve 502),
+          # and must dump enough context to debug without shell access.
+          cleanup() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::group::Diagnostics (deploy failed, rc=$rc)"
+              sudo systemctl status chatwoot.target --no-pager 2>&1 | tail -30 || true
+              sudo journalctl -u 'chatwoot*' -n 80 --no-pager 2>&1 | tail -80 || true
+              echo "::endgroup::"
+              echo "::error::Deploy failed (rc=$rc) - app restarted on the previous build."
+            fi
+            # `start` is a no-op when already running.
+            sudo systemctl start chatwoot.target >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
           echo "Stopping Chatwoot..."
           sudo systemctl stop chatwoot.target
+
+          # Must run BEFORE the build: pnpm writes into node_modules and dies with
+          # EACCES if anything in the tree is owned by another user.
+          echo "Fixing ownership..."
+          sudo chown -R chatwoot:chatwoot /home/chatwoot/chatwoot
 
           echo "Deploying latest code..."
           sudo -u chatwoot -H bash << 'DEPLOY'
@@ -33,46 +54,55 @@ jobs:
           source /usr/local/rvm/scripts/rvm
           rvm use 3.4.4
 
-          # Non-login shell: .bashrc/.profile are NOT read, so node/pnpm must be
-          # put on PATH here. Adjust to match how node is installed on the server:
-          #   nvm      -> source "$HOME/.nvm/nvm.sh" && nvm use 24
-          #   fnm      -> eval "$(fnm env)"
-          #   nodesource/apt -> already in /usr/bin, nothing needed
-          export PNPM_HOME="$HOME/.local/share/pnpm"
-          export PATH="$PNPM_HOME:$PATH"
-          if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; nvm use 24; fi
+          # cd FIRST: this shell inherits the runner's workspace as CWD, which the
+          # chatwoot user cannot even stat (pnpm reports EACCES on scandir).
+          cd /home/chatwoot/chatwoot
 
           echo "node: $(command -v node) $(node -v)"
           echo "pnpm: $(command -v pnpm) $(pnpm -v)"
 
-          # The dashboard bundle needs headroom or vite gets OOM-killed.
+          # The dashboard bundle is large; without headroom vite gets OOM-killed.
           export NODE_OPTIONS="--max-old-space-size=4096"
-
-          cd /home/chatwoot/chatwoot
 
           git fetch origin
           git reset --hard origin/prod-nsid
 
           bundle install --without development test
 
-          pnpm install --frozen-lockfile
+          # A node_modules tree left half-written by an earlier failed deploy makes
+          # pnpm fail on relink/prune. Wiping and reinstalling is the only recovery
+          # available unattended.
+          if ! pnpm install; then
+            echo "pnpm install failed - rebuilding node_modules from scratch"
+            rm -rf node_modules
+            pnpm install
+          fi
 
-          # public/vite is gitignored, so a stale bundle survives git reset.
-          # Drop it to guarantee we serve only freshly built assets.
-          rm -rf public/vite public/vite-* tmp/vite
+          # Drop only the build-skip cache, never the live bundle: if the build
+          # fails, a stale bundle still beats no bundle at all.
+          rm -rf tmp/vite
+
+          # Marker to prove the manifest below was written by THIS run.
+          mkdir -p tmp && touch tmp/deploy-marker
 
           RAILS_ENV=production bundle exec rake assets:precompile
 
-          # Fail loudly if the vite build produced nothing.
-          test -f public/vite/.vite/manifest.json || test -f public/vite/manifest.json
-          echo "Vite manifest built:"
-          ls -la public/vite/.vite/manifest.json public/vite/manifest.json 2>/dev/null || true
+          MANIFEST=public/vite/.vite/manifest.json
+          [ -f "$MANIFEST" ] || MANIFEST=public/vite/manifest.json
+
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::vite build produced no manifest - frontend was NOT rebuilt"
+            exit 1
+          fi
+          if [ ! "$MANIFEST" -nt tmp/deploy-marker ]; then
+            echo "::error::$MANIFEST is stale - vite skipped the build, frontend is old"
+            exit 1
+          fi
+          echo "Frontend rebuilt: $MANIFEST"
+          ls -la "$MANIFEST"
 
           RAILS_ENV=production bundle exec rake db:migrate
           DEPLOY
-
-          echo "Fixing permissions..."
-          sudo chown -R chatwoot:chatwoot /home/chatwoot/chatwoot
 
           echo "Restarting Chatwoot..."
           sudo systemctl daemon-reload
