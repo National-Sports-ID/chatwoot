@@ -5,10 +5,6 @@ on:
     branches:
       - prod-nsid
 
-  pull_request:
-    branches:
-      - prod-nsid
-
   workflow_dispatch:
 
 jobs:
@@ -24,18 +20,33 @@ jobs:
       # Deploy Chatwoot
       - name: Deploy Chatwoot
         run: |
-          set -e
+          set -eo pipefail
 
           echo "Stopping Chatwoot..."
           sudo systemctl stop chatwoot.target
 
-          #echo "Backing up .env..."
-          #sudo -u chatwoot cp /home/chatwoot/chatwoot/.env /home/chatwoot/.env.backup
-
           echo "Deploying latest code..."
-          sudo -u chatwoot bash << 'DEPLOY'
+          sudo -u chatwoot -H bash << 'DEPLOY'
+          set -eo pipefail
+
+          export HOME=/home/chatwoot
           source /usr/local/rvm/scripts/rvm
           rvm use 3.4.4
+
+          # Non-login shell: .bashrc/.profile are NOT read, so node/pnpm must be
+          # put on PATH here. Adjust to match how node is installed on the server:
+          #   nvm      -> source "$HOME/.nvm/nvm.sh" && nvm use 24
+          #   fnm      -> eval "$(fnm env)"
+          #   nodesource/apt -> already in /usr/bin, nothing needed
+          export PNPM_HOME="$HOME/.local/share/pnpm"
+          export PATH="$PNPM_HOME:$PATH"
+          if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; nvm use 24; fi
+
+          echo "node: $(command -v node) $(node -v)"
+          echo "pnpm: $(command -v pnpm) $(pnpm -v)"
+
+          # The dashboard bundle needs headroom or vite gets OOM-killed.
+          export NODE_OPTIONS="--max-old-space-size=4096"
 
           cd /home/chatwoot/chatwoot
 
@@ -44,15 +55,21 @@ jobs:
 
           bundle install --without development test
 
-          pnpm install
+          pnpm install --frozen-lockfile
+
+          # public/vite is gitignored, so a stale bundle survives git reset.
+          # Drop it to guarantee we serve only freshly built assets.
+          rm -rf public/vite public/vite-* tmp/vite
 
           RAILS_ENV=production bundle exec rake assets:precompile
 
+          # Fail loudly if the vite build produced nothing.
+          test -f public/vite/.vite/manifest.json || test -f public/vite/manifest.json
+          echo "Vite manifest built:"
+          ls -la public/vite/.vite/manifest.json public/vite/manifest.json 2>/dev/null || true
+
           RAILS_ENV=production bundle exec rake db:migrate
           DEPLOY
-
-          #echo "Restoring .env..."
-          #sudo -u chatwoot cp /home/chatwoot/.env.backup /home/chatwoot/chatwoot/.env
 
           echo "Fixing permissions..."
           sudo chown -R chatwoot:chatwoot /home/chatwoot/chatwoot
@@ -73,4 +90,3 @@ jobs:
             echo "❌ Deployment failed (HTTP $STATUS)"
             exit 1
           fi
-      
