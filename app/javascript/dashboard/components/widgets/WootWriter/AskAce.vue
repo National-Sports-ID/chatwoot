@@ -52,6 +52,25 @@ const scrollToBottom = () => {
   });
 };
 
+// After an answer arrives, align the LATEST question to the top of the thread so a
+// long answer is read from its START (not scrolled to its end).
+const scrollAnswerToTop = () => {
+  nextTick(() => {
+    const thread = threadRef.value;
+    if (!thread) return;
+    const questions = thread.querySelectorAll('.aa__row--user');
+    const lastQ = questions[questions.length - 1];
+    if (!lastQ) {
+      thread.scrollTop = thread.scrollHeight;
+      return;
+    }
+    // getBoundingClientRect is robust regardless of the row's offsetParent.
+    const delta =
+      lastQ.getBoundingClientRect().top - thread.getBoundingClientRect().top;
+    thread.scrollTop += delta - 8;
+  });
+};
+
 // Persist the thread PER CONVERSATION in THIS agent's browser (localStorage), so
 // closing/reopening the modal and reloads keep it; switching conversations shows
 // its own thread. Not shared between agents or devices.
@@ -102,6 +121,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown));
 const send = async q => {
   if (!q || loading.value) return;
 
+  let answered = false;
   messages.value.push({ role: 'user', text: q });
   question.value = '';
   loading.value = true;
@@ -129,6 +149,7 @@ const send = async q => {
     if (res.ok && body.answer) {
       messages.value.push({ role: 'ace', text: body.answer });
       turns.value.push({ q, a: body.answer });
+      answered = true;
     } else {
       messages.value.push({
         role: 'error',
@@ -143,7 +164,9 @@ const send = async q => {
   } finally {
     loading.value = false;
     saveHistory();
-    scrollToBottom();
+    // Read a real answer from its start; keep errors in view at the bottom.
+    if (answered) scrollAnswerToTop();
+    else scrollToBottom();
   }
 };
 
