@@ -119,8 +119,11 @@ export default {
   data() {
     return {
       message: '',
-      // NSID: guards against double-firing an Ace summarize/suggest-reply action.
+      // NSID: guards against double-firing an Ace summarize/suggest-reply action,
+      // and drives the inline "Ace is working…" indicator (shown for the WHOLE
+      // request — a toast auto-dismisses before the answer lands).
       aceAssistLoading: false,
+      aceAssistLabel: '',
       inReplyTo: {},
       isFocused: false,
       showEmojiPicker: false,
@@ -1012,12 +1015,12 @@ export default {
       // conversations, so if the agent switches while Ace is working we must NOT drop
       // the answer into a different conversation's editor.
       const originConversationId = this.conversationId;
-      this.aceAssistLoading = true;
-      useAlert(
+      // Inline indicator instead of a toast, so it stays up until the answer lands.
+      this.aceAssistLabel =
         mode === 'summarize'
           ? 'Ace is summarizing this conversation…'
-          : 'Ace is drafting a reply…'
-      );
+          : 'Ace is drafting a reply…';
+      this.aceAssistLoading = true;
       try {
         const answer = await askAce({ mode, transcript });
         if (this.conversationId !== originConversationId) return; // switched away
@@ -1362,6 +1365,25 @@ export default {
       @execute-copilot-action="executeCopilotAction"
       @insert-into-reply="insertIntoReply"
     />
+    <!-- NSID: Ace working indicator — visible for the WHOLE request (a toast
+         auto-dismisses before the 4-5s answer lands). Shown in two places: a
+         prominent top-center pill AND a strip above the composer. -->
+    <Teleport to="body">
+      <div
+        v-if="aceAssistLoading"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-2.5 px-5 py-3 text-sm font-semibold text-n-slate-1 bg-n-slate-12 rounded-xl shadow-lg"
+      >
+        <span class="i-lucide-loader-2 animate-spin size-5 flex-shrink-0" />
+        {{ aceAssistLabel }}
+      </div>
+    </Teleport>
+    <div
+      v-if="aceAssistLoading"
+      class="flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-n-violet-11 bg-n-violet-2 border-b border-n-weak"
+    >
+      <span class="i-lucide-loader-2 animate-spin size-5 flex-shrink-0" />
+      {{ aceAssistLabel }}
+    </div>
     <ArticleSearchPopover
       v-if="showArticleSearchPopover && connectedPortalSlug"
       :selected-portal-slug="connectedPortalSlug"
