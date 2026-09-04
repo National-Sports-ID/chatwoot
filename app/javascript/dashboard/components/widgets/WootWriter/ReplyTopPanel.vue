@@ -9,6 +9,7 @@ import { CAPTAIN_EVENTS } from 'dashboard/helper/AnalyticsHelper/events';
 import NextButton from 'dashboard/components-next/button/Button.vue';
 import EditorModeToggle from './EditorModeToggle.vue';
 import CopilotMenuBar from './CopilotMenuBar.vue';
+import AskAce from './AskAce.vue';
 
 export default {
   name: 'ReplyTopPanel',
@@ -16,6 +17,7 @@ export default {
     NextButton,
     EditorModeToggle,
     CopilotMenuBar,
+    AskAce,
   },
   directives: {
     OnClickOutside: vOnClickOutside,
@@ -58,7 +60,12 @@ export default {
       default: false,
     },
   },
-  emits: ['setReplyMode', 'toggleEditorSize', 'executeCopilotAction'],
+  emits: [
+    'setReplyMode',
+    'toggleEditorSize',
+    'executeCopilotAction',
+    'insertIntoReply',
+  ],
   setup(props, { emit }) {
     const setReplyMode = mode => {
       emit('setReplyMode', mode);
@@ -102,6 +109,19 @@ export default {
       showCopilotMenu.value = false;
     };
 
+    // NSID: "Ask Ace" — open the agent-assist modal and close the menu. Owned HERE
+    // (not in the transient menu) so clicks inside the modal can't be treated as an
+    // outside-click that unmounts it.
+    const showAskAce = ref(false);
+    const handleAskAce = () => {
+      showCopilotMenu.value = false;
+      showAskAce.value = true;
+    };
+    // NSID: bubble the "Insert into reply" up to ReplyBox, which owns the editor.
+    const handleInsertReply = text => {
+      emit('insertIntoReply', text);
+    };
+
     const keyboardEvents = {
       'Alt+KeyP': {
         action: () => handleNoteClick(),
@@ -110,6 +130,11 @@ export default {
       'Alt+KeyL': {
         action: () => handleReplyClick(),
         allowOnFocusedInput: false,
+      },
+      // NSID: Alt+A opens the Ask Ace popup instantly (works while typing a reply).
+      'Alt+KeyA': {
+        action: () => handleAskAce(),
+        allowOnFocusedInput: true,
       },
     };
     useKeyboardEvents(keyboardEvents);
@@ -125,6 +150,9 @@ export default {
       copilotToggleRef,
       toggleCopilotMenu,
       handleClickOutside,
+      showAskAce,
+      handleAskAce,
+      handleInsertReply,
     };
   },
   computed: {
@@ -151,6 +179,8 @@ export default {
 </script>
 
 <template>
+  <!-- eslint-disable vue/no-bare-strings-in-template --
+       NSID: the "Ask Ace" button title below is an internal-tool label, not i18n'd. -->
   <div
     class="flex justify-between gap-2 h-[3.25rem] items-center ltr:pl-3 ltr:pr-2 rtl:pr-3 rtl:pl-2"
   >
@@ -168,6 +198,17 @@ export default {
       </div>
     </div>
     <div v-if="captainTasksEnabled" class="flex items-center gap-2">
+      <!-- NSID: one-click Ask Ace — opens the same popup as the dropdown item. -->
+      <NextButton
+        ghost
+        sm
+        label="Ask Ace"
+        icon="i-ph-sparkle-fill"
+        class="text-n-violet-9 hover:enabled:!bg-n-violet-3 font-medium"
+        :disabled="disabled || isEditorDisabled"
+        title="Ask Ace (Alt+A)"
+        @click="handleAskAce"
+      />
       <div class="relative">
         <NextButton
           ref="copilotToggleRef"
@@ -190,10 +231,21 @@ export default {
           :has-selection="false"
           :has-content="hasContent"
           :conversation-id="conversationId"
-          class="ltr:right-0 rtl:left-0 bottom-full mb-2"
+          class="right-0 left-auto bottom-full mb-2"
           @execute-copilot-action="handleCopilotAction"
+          @ask-ace="handleAskAce"
         />
       </div>
+      <!-- NSID: Ask Ace modal — owned by this persistent panel + teleported to body,
+           so it isn't tied to the menu's lifecycle or click-outside. -->
+      <Teleport to="body">
+        <AskAce
+          v-if="showAskAce"
+          :conversation-id="conversationId"
+          @close="showAskAce = false"
+          @insert="handleInsertReply"
+        />
+      </Teleport>
       <NextButton
         ghost
         class="text-n-slate-11"

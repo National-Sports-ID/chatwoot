@@ -550,3 +550,20 @@
   value: 'https://us.cloud.langfuse.com'
   locked: false
 ## ---- End of LLM Observability ---- ##
+
+# ------- NSID Ace Agent-Assist ------- #
+- name: ACE_ASSIST_BASE_URL
+  display_title: 'Ace Agent-Assist Base URL'
+  description: 'Base URL of the NSID app that serves /ace/agent-assist/ask for the Ask Ace / Summarize / Suggest-a-reply features (e.g. https://app.nationalsportsid.com for live, https://redesign.nationalsportsid.com for redesign, https://local.nsid.org for local). No trailing slash. Leave blank to use the built-in default for this host.'
+  value: ''
+  locked: false
+## ---- End of NSID Ace Agent-Assist ---- ##
+
+# ------- NSID Ace Agent-Assist Shared Key ------- #
+- name: ACE_ASSIST_KEY
+  display_title: 'Ace Agent-Assist Shared Key'
+  description: 'Optional shared secret for the NSID /ace/agent-assist/ask endpoint. Leave blank to disable (origin + rate limit still apply). When set, it MUST exactly match the ace_agent_assist_secret value on the NSID app. Note: this value is sent from the browser, so it is not fully hidden — rotate it if leaked.'
+  value: ''
+  locked: false
+  type: secret
+## ---- End of NSID Ace Agent-Assist Shared Key ---- ##

@@ -30,7 +30,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['executeCopilotAction']);
+const emit = defineEmits(['executeCopilotAction', 'askAce']);
 
 const { t } = useI18n();
 
@@ -136,10 +136,13 @@ const generalMenuItems = computed(() => {
     });
   }
 
+  // NSID: "Ask Copilot" removed (Captain is Enterprise-only / inert here), replaced
+  // by "Ask Ace" — handled locally below (opens the NSID agent-lane modal), never
+  // sent to the Captain action chain.
   items.push({
-    label: t('INTEGRATION_SETTINGS.OPEN_AI.REPLY_OPTIONS.ASK_COPILOT'),
-    key: 'ask_copilot',
-    icon: 'i-fluent-circle-sparkle-24-regular',
+    label: 'Ask Ace',
+    key: 'ask_ace',
+    icon: 'i-fluent-chat-sparkle-16-regular',
   });
 
   return items;
@@ -177,9 +180,14 @@ const selectionMenuStyle = computed(() => {
 
 const handleMenuItemClick = item => {
   // For items with submenus, do nothing on click (hover will show submenu)
-  if (!item.subMenuItems) {
-    emit('executeCopilotAction', item.key);
+  if (item.subMenuItems) return;
+  // NSID: "Ask Ace" is owned by the parent (ReplyTopPanel) so its modal outlives
+  // this menu — emit up instead of the Captain action chain.
+  if (item.key === 'ask_ace') {
+    emit('askAce');
+    return;
   }
+  emit('executeCopilotAction', item.key);
 };
 
 const handleSubMenuItemClick = (parentItem, subItem) => {
@@ -190,7 +198,7 @@ const handleSubMenuItemClick = (parentItem, subItem) => {
 <template>
   <DropdownBody
     ref="menuRef"
-    class="min-w-56 [&>ul]:gap-3 z-50 [&>ul]:px-4 [&>ul]:py-3.5"
+    class="min-w-64 w-max max-w-xs whitespace-nowrap [&>ul]:gap-3 z-50 [&>ul]:px-4 [&>ul]:py-3.5"
     :class="{ 'selection-menu': hasSelection && isEditorMenuPopover }"
     :style="hasSelection && isEditorMenuPopover ? selectionMenuStyle : {}"
   >

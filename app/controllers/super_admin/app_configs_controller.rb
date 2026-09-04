@@ -55,7 +55,11 @@ class SuperAdmin::AppConfigsController < SuperAdmin::ApplicationController
 
     @allowed_configs = mapping.fetch(
       @config,
-      %w[ENABLE_ACCOUNT_SIGNUP FIREBASE_PROJECT_ID FIREBASE_CREDENTIALS WEBHOOK_TIMEOUT MAXIMUM_FILE_UPLOAD_SIZE WIDGET_TOKEN_EXPIRY]
+      # NSID: ACE_ASSIST_BASE_URL + ACE_ASSIST_KEY surfaced on the General settings
+      # page so an admin can set the Ace agent-assist backend URL and (optional)
+      # shared key without the raw config editor.
+      %w[ENABLE_ACCOUNT_SIGNUP FIREBASE_PROJECT_ID FIREBASE_CREDENTIALS WEBHOOK_TIMEOUT MAXIMUM_FILE_UPLOAD_SIZE WIDGET_TOKEN_EXPIRY
+         ACE_ASSIST_BASE_URL ACE_ASSIST_KEY]
     )
   end
 

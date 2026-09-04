@@ -20,7 +20,15 @@ import QuotedEmailPreview from './QuotedEmailPreview.vue';
 import { REPLY_EDITOR_MODES } from 'dashboard/components/widgets/WootWriter/constants';
 import WootMessageEditor from 'dashboard/components/widgets/WootWriter/Editor.vue';
 import AudioRecorder from 'dashboard/components/widgets/WootWriter/AudioRecorder.vue';
-import { AUDIO_FORMATS } from 'shared/constants/messages';
+import { AUDIO_FORMATS, MESSAGE_TYPE } from 'shared/constants/messages';
+// NSID: route Summarize + Suggest-a-reply through Ace (Claude) instead of Captain.
+import { askAce, aceAskUrl } from 'dashboard/helper/aceAssist';
+
+// NSID: the message shown when Ace has no backend URL configured yet. Kept long
+// enough (6s) to read, and it names exactly where an admin fixes it.
+const ACE_NOT_CONFIGURED_MSG =
+  'Ace isn’t set up yet. An admin needs to open Chatwoot Super Admin → Settings → General → “Ace Agent-Assist Base URL” and enter the NSID app URL (e.g. your live or redesign address).';
+const ACE_GUIDE_DURATION = 6000;
 import { BUS_EVENTS } from 'shared/constants/busEvents';
 import { CMD_AI_ASSIST } from 'dashboard/helper/commandbar/events';
 import {
@@ -111,6 +119,8 @@ export default {
   data() {
     return {
       message: '',
+      // NSID: guards against double-firing an Ace summarize/suggest-reply action.
+      aceAssistLoading: false,
       inReplyTo: {},
       isFocused: false,
       showEmojiPicker: false,
@@ -943,7 +953,94 @@ export default {
       this.onFocus();
     },
     executeCopilotAction(action, data) {
+      // NSID: Captain is inert here (OpenAI-only), so the two conversation-aware
+      // actions run on Ace/Claude instead — grounded in the agent KB, using this
+      // conversation's transcript. Everything else still goes to Captain.
+      if (action === 'summarize') {
+        this.runAceAssist('summarize');
+        return;
+      }
+      if (action === 'reply_suggestion') {
+        this.runAceAssist('suggest_reply');
+        return;
+      }
       this.copilot.execute(action, data);
+    },
+    // NSID: build a plain-text transcript of THIS conversation for Ace. Customer +
+    // agent turns only (skip activity/template system rows). Private notes are
+    // INCLUDED for summarize (internal output) but EXCLUDED for a suggested reply,
+    // so an injected instruction in a ticket can never surface a private note in a
+    // customer-facing draft (defence-in-depth alongside the server-side guard).
+    buildAceTranscript(mode) {
+      const includePrivate = mode !== 'suggest_reply';
+      const msgs = this.currentChat?.messages || [];
+      const lines = [];
+      msgs.forEach(m => {
+        if (
+          m.message_type === MESSAGE_TYPE.ACTIVITY ||
+          m.message_type === MESSAGE_TYPE.TEMPLATE
+        ) {
+          return;
+        }
+        if (m.private && !includePrivate) return;
+        const text = (m.content || '').trim();
+        if (!text) return;
+        let who = 'Agent';
+        if (m.private) who = 'Agent (private note)';
+        else if (m.message_type === MESSAGE_TYPE.INCOMING) who = 'Customer';
+        lines.push(`${who}: ${text}`);
+      });
+      return lines.join('\n');
+    },
+    // NSID: run a conversation-aware Ace task and drop the result into the editor.
+    // The result lands via insertIntoReply, which appends to the CURRENT editor —
+    // so it works in both normal-reply and private-note mode.
+    async runAceAssist(mode) {
+      if (this.aceAssistLoading) return;
+      // Guard up-front so the agent gets the setup guidance instead of a flash of
+      // "Ace is drafting…" followed by an error. Shown for 6s so it's readable.
+      if (!aceAskUrl()) {
+        useAlert(ACE_NOT_CONFIGURED_MSG, { duration: ACE_GUIDE_DURATION });
+        return;
+      }
+      const transcript = this.buildAceTranscript(mode);
+      if (!transcript) {
+        useAlert('There is no conversation yet for Ace to work with.');
+        return;
+      }
+      // Capture the conversation this request belongs to. ReplyBox is reused across
+      // conversations, so if the agent switches while Ace is working we must NOT drop
+      // the answer into a different conversation's editor.
+      const originConversationId = this.conversationId;
+      this.aceAssistLoading = true;
+      useAlert(
+        mode === 'summarize'
+          ? 'Ace is summarizing this conversation…'
+          : 'Ace is drafting a reply…'
+      );
+      try {
+        const answer = await askAce({ mode, transcript });
+        if (this.conversationId !== originConversationId) return; // switched away
+        this.insertIntoReply(answer);
+      } catch (e) {
+        if (this.conversationId !== originConversationId) return; // switched away
+        // A not-configured error (status 0) gets the full guidance for 6s; any
+        // other failure uses the normal short toast.
+        if (e.status === 0) {
+          useAlert(ACE_NOT_CONFIGURED_MSG, { duration: ACE_GUIDE_DURATION });
+        } else {
+          useAlert(e.message || 'Ace could not respond. Please try again.');
+        }
+      } finally {
+        this.aceAssistLoading = false;
+      }
+    },
+    // NSID: "Insert into reply" from the Ask Ace popup — append the answer to the
+    // reply editor so the agent can edit and send it.
+    insertIntoReply(text) {
+      const t = (text || '').trim();
+      if (!t) return;
+      this.message = this.message ? `${this.message}\n\n${t}` : t;
     },
     clearMessage() {
       this.message = '';
@@ -1263,6 +1360,7 @@ export default {
       @toggle-editor-size="toggleEditorSize"
       @toggle-copilot="copilot.toggleEditor"
       @execute-copilot-action="executeCopilotAction"
+      @insert-into-reply="insertIntoReply"
     />
     <ArticleSearchPopover
       v-if="showArticleSearchPopover && connectedPortalSlug"

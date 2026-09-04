@@ -24,6 +24,8 @@ class DashboardController < ActionController::Base
     DISABLE_USER_PROFILE_UPDATE
     DEPLOYMENT_ENV
     INSTALLATION_PRICING_PLAN
+    ACE_ASSIST_BASE_URL
+    ACE_ASSIST_KEY
   ].freeze
 
   before_action :set_application_pack
