@@ -956,9 +956,10 @@ export default {
       this.onFocus();
     },
     executeCopilotAction(action, data) {
-      // NSID: Captain is inert here (OpenAI-only), so the two conversation-aware
-      // actions run on Ace/Claude instead — grounded in the agent KB, using this
-      // conversation's transcript. Everything else still goes to Captain.
+      // NSID: Captain is inert here (OpenAI-only), so every AI reply-box action runs
+      // on Ace/Claude instead. Conversation-aware actions (summarize / suggest) use
+      // the transcript + agent KB; draft-edit actions (improve / grammar / tone)
+      // rewrite the current draft with no KB. Nothing goes to Captain.
       if (action === 'summarize') {
         this.runAceAssist('summarize');
         return;
@@ -967,7 +968,33 @@ export default {
         this.runAceAssist('suggest_reply');
         return;
       }
+      const rewrite = this.aceRewriteFor(action);
+      if (rewrite) {
+        this.runAceRewrite(rewrite.transform, rewrite.tone, data);
+        return;
+      }
       this.copilot.execute(action, data);
+    },
+    // NSID: map a Captain reply-box action key to an Ace rewrite transform, or null
+    // if it isn't a draft edit. Tone keys carry the tone; improve/grammar don't.
+    aceRewriteFor(action) {
+      if (action === 'improve' || action === 'improve_selection') {
+        return { transform: 'improve', tone: '' };
+      }
+      if (action === 'fix_spelling_grammar') {
+        return { transform: 'grammar', tone: '' };
+      }
+      const tones = [
+        'professional',
+        'casual',
+        'straightforward',
+        'confident',
+        'friendly',
+      ];
+      if (tones.includes(action)) {
+        return { transform: 'tone', tone: action };
+      }
+      return null;
     },
     // NSID: build a plain-text transcript of THIS conversation for Ace. Customer +
     // agent turns only (skip activity/template system rows). Private notes are
@@ -1033,6 +1060,44 @@ export default {
           useAlert(ACE_NOT_CONFIGURED_MSG, { duration: ACE_GUIDE_DURATION });
         } else {
           useAlert(e.message || 'Ace could not respond. Please try again.');
+        }
+      } finally {
+        this.aceAssistLoading = false;
+      }
+    },
+    // NSID: rewrite the CURRENT draft with Ace (improve / grammar / tone) and REPLACE
+    // the editor with the result (undo-able with Ctrl+Z). No KB — pure text edit.
+    async runAceRewrite(transform, tone, data) {
+      if (this.aceAssistLoading) return;
+      const text = (data || this.message || '').trim();
+      if (!text) {
+        useAlert('Write a reply first, then let Ace improve it.');
+        return;
+      }
+      if (!aceAskUrl()) {
+        useAlert(ACE_NOT_CONFIGURED_MSG, { duration: ACE_GUIDE_DURATION });
+        return;
+      }
+      const originConversationId = this.conversationId;
+      const labels = {
+        improve: 'Ace is improving your reply…',
+        grammar: 'Ace is fixing grammar & spelling…',
+        tone: `Ace is adjusting the tone${tone ? ` (${tone})` : ''}…`,
+      };
+      this.aceAssistLabel = labels[transform] || 'Ace is rewriting your reply…';
+      this.aceAssistLoading = true;
+      try {
+        const answer = await askAce({ mode: 'rewrite', transform, tone, text });
+        if (this.conversationId !== originConversationId) return; // switched away
+        if (answer) this.message = answer;
+      } catch (e) {
+        if (this.conversationId !== originConversationId) return; // switched away
+        if (e.status === 0) {
+          useAlert(ACE_NOT_CONFIGURED_MSG, { duration: ACE_GUIDE_DURATION });
+        } else {
+          useAlert(
+            e.message || 'Ace could not rewrite that. Please try again.'
+          );
         }
       } finally {
         this.aceAssistLoading = false;

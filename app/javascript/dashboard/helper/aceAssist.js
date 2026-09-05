@@ -55,7 +55,8 @@ export function aceAssistHeaders() {
  * Call the agent-assist endpoint. Resolves to the answer string; throws an Error
  * (with `.status`) carrying the server's message on failure.
  *
- * @param {{mode?: string, question?: string, transcript?: string, history?: Array}} opts
+ * @param {{mode?: string, question?: string, transcript?: string, history?: Array,
+ *          text?: string, transform?: string, tone?: string}} opts
  * @returns {Promise<string>}
  */
 export async function askAce({
@@ -63,6 +64,9 @@ export async function askAce({
   question = '',
   transcript = '',
   history = [],
+  text = '',
+  transform = '',
+  tone = '',
 } = {}) {
   const url = aceAskUrl();
   if (!url) {
@@ -75,7 +79,15 @@ export async function askAce({
   const res = await fetch(url, {
     method: 'POST',
     headers: aceAssistHeaders(),
-    body: JSON.stringify({ mode, question, transcript, history }),
+    body: JSON.stringify({
+      mode,
+      question,
+      transcript,
+      history,
+      text,
+      transform,
+      tone,
+    }),
   });
   const body = await res.json().catch(() => ({}));
   if (res.ok && body.answer) return body.answer;
