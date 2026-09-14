@@ -97,3 +97,41 @@ export async function askAce({
   err.status = res.status;
   throw err;
 }
+
+// NSID: URL of the Stop/Take-Over control endpoint (same base + secret as /ask).
+export function aceControlUrl() {
+  const base = aceAssistBase();
+  return base ? `${base}/ace/agent-assist/ace-control` : '';
+}
+
+/**
+ * Stop / resume Ace's CUSTOMER auto-replies on one conversation, or read the
+ * current state. Resolves to { stopped: boolean }; throws (with `.status`) on
+ * failure. Reuses the agent-assist base URL + shared secret + origin allowlist,
+ * so it works wherever "Ask Ace" already works.
+ *
+ * @param {{conversationId: (number|string), action?: 'status'|'stop'|'resume'}} opts
+ * @returns {Promise<{stopped: boolean}>}
+ */
+export async function aceControl({ conversationId, action = 'status' } = {}) {
+  const url = aceControlUrl();
+  if (!url) {
+    const err = new Error(
+      'Ace is not configured yet. An admin needs to set the "Ace Agent-Assist Base URL" in Super Admin → Settings.'
+    );
+    err.status = 0;
+    throw err;
+  }
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: aceAssistHeaders(),
+    body: JSON.stringify({ conversation_id: conversationId, action }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.ok) return { stopped: !!body.stopped };
+  const err = new Error(
+    body.error || 'Could not update Ace for this conversation.'
+  );
+  err.status = res.status;
+  throw err;
+}

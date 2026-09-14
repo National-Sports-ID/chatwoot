@@ -1,8 +1,12 @@
 <script>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
+import { useStore } from 'vuex';
+import { useMapGetter } from 'dashboard/composables/store';
+import wootConstants from 'dashboard/constants/globals';
+import { aceControl } from 'dashboard/helper/aceAssist';
 import { useKeyboardEvents } from 'dashboard/composables/useKeyboardEvents';
 import { useCaptain } from 'dashboard/composables/useCaptain';
-import { useTrack } from 'dashboard/composables';
+import { useTrack, useAlert } from 'dashboard/composables';
 import { vOnClickOutside } from '@vueuse/components';
 import { REPLY_EDITOR_MODES, CHAR_LENGTH_WARNING } from './constants';
 import { CAPTAIN_EVENTS } from 'dashboard/helper/AnalyticsHelper/events';
@@ -122,6 +126,97 @@ export default {
       emit('insertIntoReply', text);
     };
 
+    // NSID: "Take over chat / Hand back to Ace" (ACE #8) — stops Ace's CUSTOMER
+    // auto-replies on THIS conversation so the agent answers manually; hand back turns
+    // them on again. Distinct from "Ask Ace" (the internal Q&A). Taking over ALSO does
+    // Chatwoot's native handoff (open + assign to me) so the "handled by a bot" banner
+    // clears; handing back returns it to the bot (pending + unassign). The Chatwoot
+    // parts run via the store — with the agent's own session/permissions — reliable
+    // where a server token might be refused.
+    const store = useStore();
+    const currentUser = useMapGetter('getCurrentUser');
+    const aceStopped = ref(false);
+    const aceBusy = ref(false);
+    const applyChatwootTakeover = async takingOver => {
+      const id = props.conversationId;
+      if (takingOver) {
+        await store.dispatch('toggleStatus', {
+          conversationId: id,
+          status: wootConstants.STATUS_TYPE.OPEN,
+        });
+        const me = currentUser.value || {};
+        const { avatar_url, ...rest } = me;
+        await store.dispatch('setCurrentChatAssignee', {
+          conversationId: id,
+          assignee: { ...rest, thumbnail: avatar_url },
+        });
+        await store.dispatch('assignAgent', {
+          conversationId: id,
+          agentId: me.id || null,
+        });
+      } else {
+        // Hand back to Ace: just unassign. We do NOT set status to 'pending' — that
+        // re-triggers Chatwoot's Agent Bot routing, which surfaced a "error with the
+        // agent bot" system message. Ace resumes on its own: our webhook answers the
+        // next customer message once the stop flag is cleared, regardless of status.
+        await store.dispatch('setCurrentChatAssignee', {
+          conversationId: id,
+          assignee: null,
+        });
+        await store.dispatch('assignAgent', {
+          conversationId: id,
+          agentId: null,
+        });
+      }
+    };
+    const refreshAceState = async () => {
+      if (!props.conversationId) return;
+      try {
+        const r = await aceControl({
+          conversationId: props.conversationId,
+          action: 'status',
+        });
+        aceStopped.value = r.stopped;
+      } catch (e) {
+        /* non-fatal — leave the button as-is */
+      }
+    };
+    const handleToggleAce = async () => {
+      if (aceBusy.value || !props.conversationId) return;
+      const takingOver = !aceStopped.value;
+      aceBusy.value = true;
+      try {
+        const r = await aceControl({
+          conversationId: props.conversationId,
+          action: takingOver ? 'stop' : 'resume',
+        });
+        aceStopped.value = r.stopped;
+        // Mirror the change in Chatwoot (status + assignment) so the UI is consistent
+        // — this is what clears the "handled by a bot" banner. Non-fatal if it fails.
+        try {
+          await applyChatwootTakeover(r.stopped);
+        } catch (e) {
+          /* Chatwoot-side sync failed — the Ace flag still changed */
+        }
+        // Plain-language confirmation so the agent knows exactly what changed.
+        useAlert(
+          r.stopped
+            ? "You've taken over — Ace will not auto-reply to this customer until you hand it back."
+            : 'Ace is now auto-replying to this customer again.'
+        );
+      } catch (e) {
+        useAlert(
+          e && e.message
+            ? e.message
+            : 'Could not update Ace for this conversation. Please try again.'
+        );
+      } finally {
+        aceBusy.value = false;
+      }
+    };
+    // Sync the button to the live state when the open conversation changes.
+    watch(() => props.conversationId, refreshAceState, { immediate: true });
+
     const keyboardEvents = {
       'Alt+KeyP': {
         action: () => handleNoteClick(),
@@ -153,6 +248,9 @@ export default {
       showAskAce,
       handleAskAce,
       handleInsertReply,
+      aceStopped,
+      aceBusy,
+      handleToggleAce,
     };
   },
   computed: {
@@ -208,6 +306,26 @@ export default {
         :disabled="disabled || isEditorDisabled"
         title="Ask Ace (Alt+A)"
         @click="handleAskAce"
+      />
+      <!-- NSID (ACE #8): Take over / hand back — stops Ace's CUSTOMER auto-replies on
+           this conversation so the agent answers manually; toggles to hand back. -->
+      <NextButton
+        ghost
+        sm
+        :label="aceStopped ? 'Hand back to Ace' : 'Take over chat'"
+        :icon="aceStopped ? 'i-ph-play-fill' : 'i-ph-pause-fill'"
+        :class="
+          aceStopped
+            ? 'text-n-teal-9 hover:enabled:!bg-n-teal-3 font-medium'
+            : 'text-n-ruby-9 hover:enabled:!bg-n-ruby-3 font-medium'
+        "
+        :disabled="disabled || isEditorDisabled || aceBusy || !conversationId"
+        :title="
+          aceStopped
+            ? 'Let Ace auto-reply to this customer again'
+            : 'Stop Ace from auto-replying and answer this customer yourself'
+        "
+        @click="handleToggleAce"
       />
       <div class="relative">
         <NextButton
