@@ -21,6 +21,11 @@ import ChannelIcon from 'next/icon/ChannelIcon.vue';
 import SidebarAccountSwitcher from './SidebarAccountSwitcher.vue';
 import Logo from 'next/icon/Logo.vue';
 import ComposeConversation from 'dashboard/components-next/NewConversation/ComposeConversation.vue';
+// NSID: standalone "Ask Ace" agent-assist panel, launched from the sidebar so an
+// agent can query the KB and look up events by date/location — or find a
+// director's contact — without needing an open conversation. Reuses the
+// self-contained AskAce overlay in global (no-conversation) mode.
+import AskAce from 'dashboard/components/widgets/WootWriter/AskAce.vue';
 import {
   SIDEBAR_SORT_SECTIONS,
   getSidebarSortOptions,
@@ -46,6 +51,9 @@ const { accountScopedRoute, isOnChatwootCloud } = useAccount();
 const store = useStore();
 const searchShortcut = useKbd([`$mod`, 'k']);
 const { t } = useI18n();
+
+// NSID: standalone Ask Ace overlay, opened from the sidebar button below.
+const isAskAceOpen = ref(false);
 
 const isACustomBrandedInstance = useMapGetter(
   'globalConfig/isACustomBrandedInstance'
@@ -951,6 +959,29 @@ const menuItems = computed(() => {
         class="flex flex-col gap-1 m-0 list-none min-w-0"
         :class="{ 'items-center': isEffectivelyCollapsed }"
       >
+        <!-- NSID: Ask Ace launcher, pinned at the very top (above My Inbox).
+             Opens the agent-assist panel with no conversation for KB / event /
+             director lookups. Styled to match a top-level nav item. -->
+        <li class="w-full min-w-0">
+          <button
+            type="button"
+            class="flex items-center gap-2 px-1.5 py-1 rounded-lg h-8 w-full min-w-0 text-n-slate-11 hover:bg-n-alpha-2"
+            :class="{
+              'text-n-slate-12 bg-n-alpha-2 font-medium': isAskAceOpen,
+              '!w-8 justify-center': isEffectivelyCollapsed,
+            }"
+            :title="t('ASK_ACE.SIDEBAR_LAUNCHER')"
+            @click="isAskAceOpen = true"
+          >
+            <span class="flex-shrink-0 i-lucide-sparkles size-4" />
+            <span
+              v-if="!isEffectivelyCollapsed"
+              class="truncate text-body-main"
+            >
+              {{ t('ASK_ACE.SIDEBAR_LAUNCHER') }}
+            </span>
+          </button>
+        </li>
         <SidebarGroup
           v-for="item in menuItems"
           :key="item.name"
@@ -1000,5 +1031,11 @@ const menuItems = computed(() => {
         :class="{ 'bg-n-brand': isResizing }"
       />
     </div>
+    <!-- NSID: Ask Ace overlay. Teleported to body so it sits above the sidebar
+         and isn't clipped by its stacking context. No conversationId ⇒ global
+         (conversation-less) agent-assist mode. -->
+    <Teleport to="body">
+      <AskAce v-if="isAskAceOpen" @close="isAskAceOpen = false" />
+    </Teleport>
   </aside>
 </template>

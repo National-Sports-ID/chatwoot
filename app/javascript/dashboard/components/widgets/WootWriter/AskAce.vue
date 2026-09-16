@@ -254,7 +254,12 @@ const copyAnswer = async (text, i) => {
             />
             <div v-else class="aa__bubble-text">{{ m.text }}</div>
             <div v-if="m.role === 'ace'" class="aa__actions">
+              <!-- NSID: "Insert into reply" only makes sense when Ask Ace is
+                   opened over a conversation (per-conversation reply box). In the
+                   standalone sidebar launcher (no conversationId) there is no
+                   reply box, so we hide it and keep Copy. -->
               <button
+                v-if="conversationId"
                 type="button"
                 class="aa__act aa__act--primary"
                 title="Put this answer into your reply box"
