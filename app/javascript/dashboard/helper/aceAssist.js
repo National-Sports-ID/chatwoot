@@ -135,3 +135,40 @@ export async function aceControl({ conversationId, action = 'status' } = {}) {
   err.status = res.status;
   throw err;
 }
+
+// NSID (#3797): URL of the Create-ticket endpoint (same base + secret as /ask).
+export function aceTicketUrl() {
+  const base = aceAssistBase();
+  return base ? `${base}/ace/agent-assist/ticket` : '';
+}
+
+/**
+ * Create an email ticket from a chat. `status` resolves to { enabled }, `prefill`
+ * to { requester, fields, existing } (Ace reads the chat), `create` to the ticket
+ * result { ok, reference, duplicate }. Throws (with `.status` and `.body`) on failure;
+ * a 404 means tickets are switched off on the NSID app.
+ *
+ * @param {{conversationId: (number|string), action: 'status'|'prefill'|'create', fields?: Object}} opts
+ * @returns {Promise<Object>}
+ */
+export async function aceTicket({ conversationId, action, fields = {} } = {}) {
+  const url = aceTicketUrl();
+  if (!url) {
+    const err = new Error(
+      'Ace is not configured yet. An admin needs to set the "Ace Agent-Assist Base URL" in Super Admin → Settings.'
+    );
+    err.status = 0;
+    throw err;
+  }
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: aceAssistHeaders(),
+    body: JSON.stringify({ conversation_id: conversationId, action, fields }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.ok) return body;
+  const err = new Error(body.error || 'Could not reach the ticket system.');
+  err.status = res.status;
+  err.body = body;
+  throw err;
+}

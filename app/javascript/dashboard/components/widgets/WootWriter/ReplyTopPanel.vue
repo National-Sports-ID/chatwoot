@@ -3,7 +3,7 @@ import { ref, watch } from 'vue';
 import { useStore } from 'vuex';
 import { useMapGetter } from 'dashboard/composables/store';
 import wootConstants from 'dashboard/constants/globals';
-import { aceControl } from 'dashboard/helper/aceAssist';
+import { aceControl, aceTicket } from 'dashboard/helper/aceAssist';
 import { useKeyboardEvents } from 'dashboard/composables/useKeyboardEvents';
 import { useCaptain } from 'dashboard/composables/useCaptain';
 import { useTrack, useAlert } from 'dashboard/composables';
@@ -14,6 +14,7 @@ import NextButton from 'dashboard/components-next/button/Button.vue';
 import EditorModeToggle from './EditorModeToggle.vue';
 import CopilotMenuBar from './CopilotMenuBar.vue';
 import AskAce from './AskAce.vue';
+import CreateTicket from './CreateTicket.vue';
 
 export default {
   name: 'ReplyTopPanel',
@@ -22,6 +23,7 @@ export default {
     EditorModeToggle,
     CopilotMenuBar,
     AskAce,
+    CreateTicket,
   },
   directives: {
     OnClickOutside: vOnClickOutside,
@@ -217,6 +219,27 @@ export default {
     // Sync the button to the live state when the open conversation changes.
     watch(() => props.conversationId, refreshAceState, { immediate: true });
 
+    // NSID (#3797): "Create ticket" — Ace turns this chat into an email ticket in the
+    // ticket inbox (the agent checks the details first). Shown only while tickets are
+    // switched on in the NSID app (the status call answers 404 when they're off).
+    const ticketsEnabled = ref(false);
+    const showCreateTicket = ref(false);
+    const refreshTicketsEnabled = async () => {
+      if (!props.conversationId) return;
+      try {
+        const r = await aceTicket({
+          conversationId: props.conversationId,
+          action: 'status',
+        });
+        ticketsEnabled.value = !!r.enabled;
+      } catch (e) {
+        ticketsEnabled.value = false;
+      }
+    };
+    watch(() => props.conversationId, refreshTicketsEnabled, {
+      immediate: true,
+    });
+
     const keyboardEvents = {
       'Alt+KeyP': {
         action: () => handleNoteClick(),
@@ -251,6 +274,8 @@ export default {
       aceStopped,
       aceBusy,
       handleToggleAce,
+      ticketsEnabled,
+      showCreateTicket,
     };
   },
   computed: {
@@ -327,6 +352,18 @@ export default {
         "
         @click="handleToggleAce"
       />
+      <!-- NSID (#3797): turn this chat into an email ticket. -->
+      <NextButton
+        v-if="ticketsEnabled"
+        ghost
+        sm
+        label="Create ticket"
+        icon="i-ph-ticket-fill"
+        class="text-n-blue-9 hover:enabled:!bg-n-blue-3 font-medium"
+        :disabled="disabled || !conversationId"
+        title="Turn this chat into an email ticket — the customer is emailed and the chat closes"
+        @click="showCreateTicket = true"
+      />
       <div class="relative">
         <NextButton
           ref="copilotToggleRef"
@@ -362,6 +399,11 @@ export default {
           :conversation-id="conversationId"
           @close="showAskAce = false"
           @insert="handleInsertReply"
+        />
+        <CreateTicket
+          v-if="showCreateTicket"
+          :conversation-id="conversationId"
+          @close="showCreateTicket = false"
         />
       </Teleport>
       <NextButton
