@@ -13,8 +13,10 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'created']);
 
-// Which fields each request type shows, and which of them are required. The required
-// sets mirror AceTicketService::REQUIRED_FIELDS — the server checks them again.
+// Which fields each request type shows, and which of them are required. The athlete's
+// full name is the only required field (#3797); everything else is taken when known and
+// never blocks the ticket. Mirrors AceTicketService::REQUIRED_FIELDS — the server checks
+// them again.
 const TYPES = [
   {
     value: 'pg_link',
@@ -26,7 +28,7 @@ const TYPES = [
       'organization_or_event',
       'details',
     ],
-    required: ['athlete_name', 'nsid_id', 'organization_or_event'],
+    required: ['athlete_name'],
   },
   {
     value: 'urgent_review',
@@ -38,7 +40,13 @@ const TYPES = [
     value: 'document_review',
     label: 'Document review',
     fields: ['athlete_name', 'nsid_id', 'document_type', 'details'],
-    required: ['athlete_name', 'document_type'],
+    required: ['athlete_name'],
+  },
+  {
+    value: 'integration',
+    label: 'Integration / API',
+    fields: ['organization_or_event', 'details'],
+    required: [],
   },
   {
     value: 'general',
@@ -49,7 +57,7 @@ const TYPES = [
 ];
 const FIELD_META = {
   athlete_name: { label: 'Full name', placeholder: 'e.g. Jordan Reed' },
-  nsid_id: { label: 'NSID ID', placeholder: 'e.g. 123456' },
+  nsid_id: { label: 'NSID ID (if known)', placeholder: 'e.g. 123456' },
   pg_id: { label: 'Perfect Game ID', placeholder: 'If the customer has it' },
   document_type: {
     label: 'Document to review',
@@ -94,7 +102,9 @@ const created = ref(null);
 const bodyRef = ref(null);
 
 const currentType = computed(
-  () => TYPES.find(t => t.value === form.value.type) || TYPES[3]
+  () =>
+    TYPES.find(t => t.value === form.value.type) ||
+    TYPES.find(t => t.value === 'general')
 );
 const isRequired = key => currentType.value.required.includes(key);
 const fieldLabel = key => FIELD_META[key].label;
@@ -536,7 +546,7 @@ const create = async () => {
 /* Request type tabs */
 .ct__tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
   padding: 4px;
   margin-bottom: 16px;
