@@ -194,6 +194,62 @@ describe('availabilityHelpers', () => {
 
       expect(isInWorkingHours(new Date(), 'UTC', workingHours)).toBe(false);
     });
+
+    describe('overnight slots (closing after midnight)', () => {
+      const at = (day, hours, minutes = 0) => {
+        const mockDate = new Date('2024-01-15T00:00:00.000Z');
+        mockDate.getDay = vi.fn().mockReturnValue(day);
+        mockDate.getHours = vi.fn().mockReturnValue(hours);
+        mockDate.getMinutes = vi.fn().mockReturnValue(minutes);
+        vi.mocked(utcToZonedTime).mockReturnValue(mockDate);
+      };
+      // Monday 7:00 AM - 2:00 AM, Sunday 8:00 AM - midnight, Tuesday closed.
+      const workingHours = [
+        {
+          dayOfWeek: 0,
+          openHour: 8,
+          openMinutes: 0,
+          closeHour: 0,
+          closeMinutes: 0,
+        },
+        {
+          dayOfWeek: 1,
+          openHour: 7,
+          openMinutes: 0,
+          closeHour: 2,
+          closeMinutes: 0,
+        },
+        { dayOfWeek: 2, closedAllDay: true },
+      ];
+
+      it('is open late on the slot day', () => {
+        at(1, 23, 30);
+        expect(isInWorkingHours(new Date(), 'UTC', workingHours)).toBe(true);
+      });
+
+      it('stays open after midnight on the next day, even when that day is closed', () => {
+        at(2, 1, 59);
+        expect(isInWorkingHours(new Date(), 'UTC', workingHours)).toBe(true);
+      });
+
+      it('closes at the closing time on the next day', () => {
+        at(2, 2, 0);
+        expect(isInWorkingHours(new Date(), 'UTC', workingHours)).toBe(false);
+      });
+
+      it('does not open early in the morning of the slot day itself', () => {
+        // Monday 1 AM belongs to Sunday night, and Sunday closes at midnight.
+        at(1, 1, 0);
+        expect(isInWorkingHours(new Date(), 'UTC', workingHours)).toBe(false);
+      });
+
+      it('treats a midnight closing time as the end of the day', () => {
+        at(0, 23, 59);
+        expect(isInWorkingHours(new Date(), 'UTC', workingHours)).toBe(true);
+        at(0, 7, 59);
+        expect(isInWorkingHours(new Date(), 'UTC', workingHours)).toBe(false);
+      });
+    });
   });
 
   describe('findNextAvailableSlotDetails', () => {

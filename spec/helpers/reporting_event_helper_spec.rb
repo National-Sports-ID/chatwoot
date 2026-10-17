@@ -174,4 +174,20 @@ RSpec.describe ReportingEventHelper, type: :helper do
       end
     end
   end
+
+  describe '#business_hours' do
+    let(:inbox) { create(:inbox, timezone: 'UTC', working_hours_enabled: true) }
+
+    before do
+      inbox.working_hours.where(day_of_week: [0, 2, 3, 4, 5, 6]).find_each { |wh| wh.update!(closed_all_day: true) }
+      # Monday 2026-10-12: 7:00 AM - 2:00 AM (Tuesday)
+      inbox.working_hours.find_by(day_of_week: 1).update!(open_hour: 7, open_minutes: 0, close_hour: 2, close_minutes: 0)
+    end
+
+    it 'counts the part of an overnight shift that runs past midnight' do
+      from = Time.utc(2026, 10, 12, 23, 0)
+      to = Time.utc(2026, 10, 13, 3, 0)
+      expect(helper.business_hours(inbox, from, to)).to eq(3.hours.to_i)
+    end
+  end
 end

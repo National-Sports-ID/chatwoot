@@ -42,9 +42,37 @@ module ReportingEventHelper
   private
 
   def configure_working_hours(working_hours)
-    working_hours.each_with_object({}) do |working_hour, object|
-      object[day(working_hour.day_of_week)] = working_hour_range(working_hour) unless working_hour.closed_all_day?
-    end
+    split_working_hours(working_hours).transform_values { |ranges| merge_ranges(ranges) }
+  end
+
+  # The working_hours gem rejects a range that ends before it starts, so an overnight
+  # slot is split: open until 24:00 on its day, then 00:00 to closing on the next.
+  def split_working_hours(working_hours)
+    working_hours.reject(&:closed_all_day?).flat_map { |wh| slot_ranges(wh) }
+                 .each_with_object({}) { |(day, start, finish), object| (object[day] ||= {})[start] = finish }
+  end
+
+  def slot_ranges(working_hour)
+    open_at = format_time(working_hour.open_hour, working_hour.open_minutes)
+    close_at = format_time(working_hour.close_hour, working_hour.close_minutes)
+    today = day(working_hour.day_of_week)
+    return [[today, open_at, close_at]] unless working_hour.overnight?
+
+    ranges = [[today, open_at, '24:00']]
+    ranges << [day((working_hour.day_of_week + 1) % 7), '00:00', close_at] unless close_at == '00:00'
+    ranges
+  end
+
+  # A night shift's tail can meet the next day's own range (e.g. an all-day slot);
+  # the gem refuses overlapping ranges, so join them.
+  def merge_ranges(ranges)
+    ranges.sort.each_with_object([]) do |(start, finish), merged|
+      if merged.any? && start <= merged.last[1]
+        merged.last[1] = [merged.last[1], finish].max
+      else
+        merged << [start, finish]
+      end
+    end.to_h
   end
 
   def day(day_of_week)
@@ -58,10 +86,6 @@ module ReportingEventHelper
       6 => :sat
     }
     week_days[day_of_week]
-  end
-
-  def working_hour_range(working_hour)
-    { format_time(working_hour.open_hour, working_hour.open_minutes) => format_time(working_hour.close_hour, working_hour.close_minutes) }
   end
 
   def format_time(hour, minute)

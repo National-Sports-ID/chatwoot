@@ -102,4 +102,52 @@ RSpec.describe WorkingHour do
       expect(described_class.today.open_now?).to be true
     end
   end
+
+  context 'when the closing time is after midnight' do
+    let(:inbox) { create(:inbox, timezone: 'America/New_York', working_hours_enabled: true) }
+
+    before do
+      Time.zone = 'UTC'
+      # Monday 7:00 AM - 2:00 AM, Tuesday closed, Sunday 8:00 AM - midnight.
+      inbox.working_hours.find_by(day_of_week: 1).update!(open_hour: 7, open_minutes: 0, close_hour: 2, close_minutes: 0)
+      inbox.working_hours.find_by(day_of_week: 2).update!(closed_all_day: true)
+      inbox.working_hours.find_by(day_of_week: 0).update!(closed_all_day: false, open_hour: 8, open_minutes: 0,
+                                                          close_hour: 0, close_minutes: 0)
+    end
+
+    it 'saves the slot as an overnight shift' do
+      expect(inbox.working_hours.find_by(day_of_week: 1)).to be_overnight
+    end
+
+    it 'is open late on the slot day' do
+      travel_to Time.find_zone('America/New_York').parse('2026-10-12 23:30')
+      expect(inbox.out_of_office?).to be false
+    end
+
+    it 'stays open after midnight even though the next day is closed' do
+      travel_to Time.find_zone('America/New_York').parse('2026-10-13 01:59')
+      expect(inbox.out_of_office?).to be false
+    end
+
+    it 'closes at the closing time on the next day' do
+      travel_to Time.find_zone('America/New_York').parse('2026-10-13 02:00')
+      expect(inbox.out_of_office?).to be true
+    end
+
+    it 'does not treat the early hours of the slot day as open' do
+      travel_to Time.find_zone('America/New_York').parse('2026-10-12 01:00')
+      expect(inbox.out_of_office?).to be true
+    end
+
+    it 'treats a midnight closing time as the end of the day' do
+      travel_to Time.find_zone('America/New_York').parse('2026-10-11 23:45')
+      expect(inbox.out_of_office?).to be false
+    end
+
+    it 'rejects the same opening and closing time' do
+      working_hour = inbox.working_hours.find_by(day_of_week: 3)
+      working_hour.assign_attributes(open_hour: 9, open_minutes: 0, close_hour: 9, close_minutes: 0)
+      expect(working_hour).to be_invalid
+    end
+  end
 end

@@ -54,20 +54,48 @@ const getTodayConfig = (time, utcOffset, workingHours) => {
 };
 
 /**
- * Check if current time is within working range, handling midnight crossing
+ * NSID: a closing time at or before the opening time means the slot runs past
+ * midnight (7:00 AM - 2:00 AM).
  * @private
- * @param {number} currentMinutes
- * @param {number} openMinutes
- * @param {number} closeMinutes
+ * @param {Object} slot
  * @returns {boolean}
  */
-const isTimeWithinRange = (currentMinutes, openMinutes, closeMinutes) => {
-  const crossesMidnight = closeMinutes <= openMinutes;
+const isOvernightSlot = slot =>
+  Boolean(slot) &&
+  !slot.closedAllDay &&
+  !slot.openAllDay &&
+  toMinutes(slot.closeHour ?? 0, slot.closeMinutes ?? 0) <=
+    toMinutes(slot.openHour ?? 0, slot.openMinutes ?? 0);
 
-  return crossesMidnight
-    ? currentMinutes >= openMinutes || currentMinutes < closeMinutes
+/**
+ * Is the slot open at this minute of its own day?
+ * @private
+ * @param {Object|null} slot
+ * @param {number} currentMinutes
+ * @returns {boolean}
+ */
+const isOpenOnSlotDay = (slot, currentMinutes) => {
+  if (!slot || slot.closedAllDay) return false;
+  if (slot.openAllDay) return true;
+
+  const openMinutes = toMinutes(slot.openHour ?? 0, slot.openMinutes ?? 0);
+  const closeMinutes = toMinutes(slot.closeHour ?? 0, slot.closeMinutes ?? 0);
+
+  return isOvernightSlot(slot)
+    ? currentMinutes >= openMinutes
     : currentMinutes >= openMinutes && currentMinutes < closeMinutes;
 };
+
+/**
+ * Is yesterday's overnight slot still running at this minute?
+ * @private
+ * @param {Object|null} slot - yesterday's slot
+ * @param {number} currentMinutes
+ * @returns {boolean}
+ */
+const isOpenPastMidnight = (slot, currentMinutes) =>
+  isOvernightSlot(slot) &&
+  currentMinutes < toMinutes(slot.closeHour ?? 0, slot.closeMinutes ?? 0);
 
 /**
  * Build a map keyed by `dayOfWeek` for all slots that are NOT closed all day.
@@ -235,27 +263,18 @@ export const isClosedAllDay = (time, utcOffset, workingHours = []) => {
 export const isInWorkingHours = (time, utcOffset, workingHours = []) => {
   if (!workingHours.length) return false;
 
-  const todayConfig = getTodayConfig(time, utcOffset, workingHours);
-  if (!todayConfig) return false;
-
-  // Handle all-day states
-  if (todayConfig.openAllDay) return true;
-  if (todayConfig.closedAllDay) return false;
-
-  // Check time-based availability
   const date = getDateInTimezone(time, utcOffset);
+  const currentDay = date.getDay();
   const currentMinutes = toMinutes(date.getHours(), date.getMinutes());
+  const slotFor = day => workingHours.find(slot => slot.dayOfWeek === day);
 
-  const openMinutes = toMinutes(
-    todayConfig.openHour ?? 0,
-    todayConfig.openMinutes ?? 0
+  return (
+    isOpenOnSlotDay(slotFor(currentDay), currentMinutes) ||
+    isOpenPastMidnight(
+      slotFor((currentDay + DAYS_IN_WEEK - 1) % DAYS_IN_WEEK),
+      currentMinutes
+    )
   );
-  const closeMinutes = toMinutes(
-    todayConfig.closeHour ?? 0,
-    todayConfig.closeMinutes ?? 0
-  );
-
-  return isTimeWithinRange(currentMinutes, openMinutes, closeMinutes);
 };
 
 /**

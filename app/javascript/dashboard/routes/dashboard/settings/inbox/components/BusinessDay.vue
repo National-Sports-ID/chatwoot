@@ -41,7 +41,7 @@ export default {
       return groupByPeriod(timeSlots);
     },
     toTimeSlots() {
-      return groupByPeriod(timeSlots.filter(slot => slot !== '12:00 AM'));
+      return groupByPeriod(timeSlots);
     },
     isDayEnabled: {
       get() {
@@ -71,12 +71,10 @@ export default {
         return this.timeSlot.from;
       },
       set(value) {
-        const fromDate = parse(value, 'hh:mm a', new Date());
-        const valid = differenceInMinutes(this.toDate, fromDate) / 60 > 0;
         this.$emit('update', {
           ...this.timeSlot,
           from: value,
-          valid,
+          valid: value !== this.toTime,
         });
       },
     },
@@ -85,21 +83,12 @@ export default {
         return this.timeSlot.to;
       },
       set(value) {
-        const toDate = parse(value, 'hh:mm a', new Date());
-        if (value === '12:00 AM') {
-          this.$emit('update', {
-            ...this.timeSlot,
-            to: value,
-            valid: true,
-          });
-        } else {
-          const valid = differenceInMinutes(toDate, this.fromDate) / 60 > 0;
-          this.$emit('update', {
-            ...this.timeSlot,
-            to: value,
-            valid,
-          });
-        }
+        // NSID: a closing time at or before the opening time ends the next day.
+        this.$emit('update', {
+          ...this.timeSlot,
+          to: value,
+          valid: value !== this.fromTime,
+        });
       },
     },
     fromDate() {
@@ -108,10 +97,18 @@ export default {
     toDate() {
       return parse(this.toTime, 'hh:mm a', new Date());
     },
+    closesNextDay() {
+      return (
+        !this.timeSlot.openAllDay &&
+        this.toTime !== '12:00 AM' &&
+        differenceInMinutes(this.toDate, this.fromDate) < 0
+      );
+    },
     totalHours() {
       if (this.timeSlot.openAllDay) return '24h';
 
-      const totalMinutes = differenceInMinutes(this.toDate, this.fromDate);
+      const diff = differenceInMinutes(this.toDate, this.fromDate);
+      const totalMinutes = diff < 0 ? diff + 24 * 60 : diff;
       const [h, m] = [Math.floor(totalMinutes / 60), totalMinutes % 60];
 
       return [h && `${h}h`, m && `${m}m`].filter(Boolean).join(' ') || '0m';
@@ -194,6 +191,12 @@ export default {
             :disabled="isOpenAllDay"
           />
         </div>
+        <span
+          v-if="!hasError && closesNextDay"
+          class="text-label-small text-n-slate-11"
+        >
+          {{ $t('INBOX_MGMT.BUSINESS_HOURS.DAY.CLOSES_NEXT_DAY') }}
+        </span>
         <span v-if="hasError" class="error text-label-small text-n-ruby-9">
           {{ $t('INBOX_MGMT.BUSINESS_HOURS.DAY.VALIDATION_ERROR') }}
         </span>

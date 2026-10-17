@@ -1014,7 +1014,8 @@
         "HOURS": "Hours",
         "ENABLE": "Enable availability for this day",
         "UNAVAILABLE": "Unavailable",
-        "VALIDATION_ERROR": "Starting time should be before closing time.",
+        "VALIDATION_ERROR": "Opening and closing time can't be the same.",
+        "CLOSES_NEXT_DAY": "Closes the next day (after midnight).",
         "CHOOSE": "Choose"
       },
       "ALL_DAY": "All-Day"

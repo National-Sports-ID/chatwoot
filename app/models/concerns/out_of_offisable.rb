@@ -11,7 +11,16 @@ module OutOfOffisable
   end
 
   def out_of_office?
-    working_hours_enabled? && working_hours.today.closed_now?
+    working_hours_enabled? && !open_at?(Time.zone.now)
+  end
+
+  # Open when today's slot covers the time, or yesterday's overnight slot is still running.
+  def open_at?(time)
+    local = time.in_time_zone(timezone)
+    by_day = working_hours.index_by(&:day_of_week)
+    return true if by_day[local.wday]&.open_at?(local)
+
+    by_day[(local.wday - 1) % 7]&.open_past_midnight_at?(local) || false
   end
 
   def working_now?

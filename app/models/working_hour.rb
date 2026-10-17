@@ -36,7 +36,7 @@ class WorkingHour < ApplicationRecord
   validates :open_minutes,  inclusion: 0..59, unless: :closed_all_day?
   validates :close_minutes, inclusion: 0..59, unless: :closed_all_day?
 
-  validate :close_after_open, unless: :closed_all_day?
+  validate :close_differs_from_open, unless: :closed_all_day?
   validate :open_all_day_and_closed_all_day
 
   def self.today
@@ -46,13 +46,25 @@ class WorkingHour < ApplicationRecord
     find_by(day_of_week: Time.zone.now.in_time_zone(inbox.timezone).to_date.wday)
   end
 
+  # NSID: a closing time at or before the opening time means the shift ends after
+  # midnight (7:00 AM - 2:00 AM). This covers the part on the slot's own day.
   def open_at?(time)
     return false if closed_all_day?
+    return true if open_all_day?
 
-    open_time = Time.zone.now.in_time_zone(inbox.timezone).change({ hour: open_hour, min: open_minutes })
-    close_time = Time.zone.now.in_time_zone(inbox.timezone).change({ hour: close_hour, min: close_minutes })
+    minute = minute_of_day(time.in_time_zone(inbox.timezone))
+    return minute >= open_time_in_minutes if overnight?
 
-    time.between?(open_time, close_time)
+    minute.between?(open_time_in_minutes, close_time_in_minutes)
+  end
+
+  # The part of an overnight shift that runs into the next day.
+  def open_past_midnight_at?(time)
+    overnight? && minute_of_day(time.in_time_zone(inbox.timezone)) < close_time_in_minutes
+  end
+
+  def overnight?
+    !closed_all_day? && !open_all_day? && close_time_in_minutes <= open_time_in_minutes
   end
 
   def open_now?
@@ -70,10 +82,23 @@ class WorkingHour < ApplicationRecord
     self.account_id = inbox.account_id
   end
 
-  def close_after_open
-    return unless open_hour.hours + open_minutes.minutes >= close_hour.hours + close_minutes.minutes
+  def close_differs_from_open
+    return if open_hour.nil? || open_minutes.nil? || close_hour.nil? || close_minutes.nil?
+    return unless open_time_in_minutes == close_time_in_minutes
 
-    errors.add(:close_hour, 'Closing time cannot be before opening time')
+    errors.add(:close_hour, 'Closing time cannot be the same as opening time')
+  end
+
+  def open_time_in_minutes
+    (open_hour.to_i * 60) + open_minutes.to_i
+  end
+
+  def close_time_in_minutes
+    (close_hour.to_i * 60) + close_minutes.to_i
+  end
+
+  def minute_of_day(time)
+    (time.hour * 60) + time.min
   end
 
   def ensure_open_all_day_hours
