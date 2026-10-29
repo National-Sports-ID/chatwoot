@@ -7,6 +7,12 @@ import ImageBubble from 'widget/components/ImageBubble.vue';
 import VideoBubble from 'widget/components/VideoBubble.vue';
 import FileBubble from 'widget/components/FileBubble.vue';
 import Avatar from 'dashboard/components-next/avatar/Avatar.vue';
+import AceAvatar from 'widget/components/AceAvatar.vue';
+import {
+  aceMoodsEnabled,
+  aceFreshMessageId,
+  isAceSender,
+} from 'widget/helpers/aceMoods';
 import { MESSAGE_TYPE } from 'widget/helpers/constants';
 import configMixin from '../mixins/configMixin';
 import messageMixin from '../mixins/messageMixin';
@@ -22,6 +28,7 @@ export default {
     ImageBubble,
     VideoBubble,
     Avatar,
+    AceAvatar,
     UserMessage,
     FileBubble,
     MessageReplyButton,
@@ -99,6 +106,25 @@ export default {
         this.message.additional_attributes?.sender_avatar_url || displayImage
       );
     },
+    // NSID/Ace: Ace (the agent bot) gets a larger avatar; human agents keep 24px.
+    // With moods on (ace_avatar_moods) it is the animated face: Hi on its first
+    // message and Done on a later one as they arrive, then Default.
+    isAceMessage() {
+      return isAceSender(this.message.sender);
+    },
+    avatarSize() {
+      return this.isAceMessage ? 32 : 24;
+    },
+    showAceAvatar() {
+      return this.isAceMessage && aceMoodsEnabled.value;
+    },
+    aceMood() {
+      if (aceFreshMessageId.value !== this.message.id) return 'default';
+      const firstAceMessage = Object.values(
+        this.$store.getters['conversation/getConversation']
+      ).find(m => isAceSender(m.sender));
+      return firstAceMessage?.id === this.message.id ? 'hi' : 'done';
+    },
     hasRecordedResponse() {
       return (
         this.messageContentAttributes.submitted_email ||
@@ -172,12 +198,17 @@ export default {
     }"
   >
     <div v-if="!isASubmittedForm" class="agent-message">
-      <div class="avatar-wrap">
+      <div class="avatar-wrap" :class="{ 'is-ace': isAceMessage }">
         <div class="user-thumbnail-box">
+          <AceAvatar
+            v-if="showAceAvatar && (message.showAvatar || hasRecordedResponse)"
+            :mood="aceMood"
+            :size="avatarSize"
+          />
           <Avatar
-            v-if="message.showAvatar || hasRecordedResponse"
+            v-else-if="message.showAvatar || hasRecordedResponse"
             :src="avatarUrl"
-            :size="24"
+            :size="avatarSize"
             :name="agentName"
             rounded-full
           />

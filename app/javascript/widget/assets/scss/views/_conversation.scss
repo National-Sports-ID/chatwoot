@@ -9,6 +9,11 @@
     .avatar-wrap {
       @apply flex-shrink-0 h-6 w-6;
 
+      // NSID/Ace: column sized to Ace's 32px avatar (AgentMessage.vue).
+      &.is-ace {
+        @apply h-8 w-8;
+      }
+
       .user-thumbnail-box {
         @apply -mt-8;
       }

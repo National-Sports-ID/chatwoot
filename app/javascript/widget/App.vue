@@ -22,6 +22,7 @@ import { useRouter } from 'vue-router';
 import { useAvailability } from 'widget/composables/useAvailability';
 import { SDK_SET_BUBBLE_VISIBILITY } from '../shared/constants/sharedFrameEvents';
 import { emitter } from 'shared/helpers/mitt';
+import { setAceMoodsFromAttributes } from 'widget/helpers/aceMoods';
 
 export default {
   name: 'App',
@@ -292,6 +293,7 @@ export default {
         } else if (message.event === 'set-user') {
           this.$store.dispatch('contacts/setUser', message);
         } else if (message.event === 'set-custom-attributes') {
+          setAceMoodsFromAttributes(message.customAttributes);
           this.$store.dispatch(
             'contacts/setCustomAttributes',
             message.customAttributes
